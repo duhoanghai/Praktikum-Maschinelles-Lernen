@@ -6,7 +6,7 @@ Gruppe 6
 '''
 
 import numpy as np
-import matplotlib.pyplot as plt
+from pathlib import Path
 
 #Definition der Parameter
 '''
@@ -21,10 +21,12 @@ alpha: konstante Lernrate für den Gradientenabstieg
 beta: Koeffizient des Momentumterms
 '''
 
-NumTrainPoints = 10  #3
+# Korrektur zum Originalkommentar: 3*pi ≈ 9.42478; 4*pi ≈ 12.56637.
+# Standardwerte für den Test aus Aufgabe 1; Aufgabe 11/12 setzt [0, pi].
+NumTrainPoints = 3  #3
 NumValPoints   = 100
 Xstart = 0
-Xend   = 3.1415      #1
+Xend   = 1           #1
 alpha  = 0.1
 beta   = 0.9 
 
@@ -58,6 +60,11 @@ def NeuralNetwork(GridPoint,w):
    Berechnet für einen einzelnen x-Wert die Ausgabe des neuronalen Netzes.
    '''
    
+   # Die Neuronenzahl folgt aus den drei gleich langen Gewichtsblöcken.
+   # Dadurch funktioniert diese Funktion auch nach einem Import der Datei.
+   if np.ndim(w) != 1 or len(w) == 0 or len(w) % 3 != 0:
+      raise ValueError("w muss ein Vektor mit 3 Gewichten pro Neuron sein.")
+   NumHLNeurons = len(w) // 3
    # Aufgabe 4: Die drei Blöcke enthalten nu, eta und rho in dieser Reihenfolge.
    nu  = w[:NumHLNeurons]                    #[:5]
    eta = w[NumHLNeurons:2 * NumHLNeurons]    #[5:10]
@@ -91,6 +98,11 @@ def LossFunctionGradient(GridPoint,TanhNeurons,OutputNeuron,w):
    verändert werden, um den Fehler zu verringern.
    '''
 
+   if np.ndim(w) != 1 or len(w) == 0 or len(w) % 3 != 0:
+      raise ValueError("w muss ein Vektor mit 3 Gewichten pro Neuron sein.")
+   NumHLNeurons = len(w) // 3
+   if np.shape(TanhNeurons) != (NumHLNeurons,):
+      raise ValueError("Die Anzahl der Tanh-Werte passt nicht zu w.")
    # Aufgabe 6: Kettenregel, mit tanh'(z) = 1 - tanh(z)**2.
    error = OutputNeuron - np.cos(GridPoint)
    rho = w[2 * NumHLNeurons:]
@@ -142,7 +154,23 @@ def MeanAbsoluteError(NumPoints, grid, w):
 # Aufgabe 9: Der Hauptteil 
 if __name__ == "__main__":
 
-   choice = input("Wählen Sie die Anzahl der hidden layer neurons (5 oder 10): ")
+   task = input("Aufgabe wählen: 10 = Test 1-9/Theorie, 11 oder 12: ").strip()
+   if task not in ("10", "11", "12"):
+      raise ValueError("Bitte '10', '11' oder '12' eingeben.")
+
+   if task == "10":
+      # Vorgegebener Vergleichsfall: genau 5 Neuronen, 3 Punkte, 1 Epoche.
+      choice = "5"
+      NumTrainPoints, NumEpochs = 3, 1
+      Xstart, Xend = 0, 1
+   else:
+      choice = input("Wählen Sie die Anzahl der hidden layer neurons (5 oder 10): ").strip()
+      NumTrainPoints = 10
+      Xstart, Xend = 0, np.pi
+      # Matplotlib wird nur für die Diagramme in Aufgabe 11 und 12 benötigt.
+      import matplotlib.pyplot as plt
+      OutputDir = Path(__file__).resolve().parent / "ergebnisse" / f"aufgabe{task}_{choice}neuronen"
+      OutputDir.mkdir(parents=True, exist_ok=True)
 
    if choice == "5":
       NumHLNeurons = 5
@@ -193,9 +221,36 @@ if __name__ == "__main__":
    print(f"MAE Validierung:{InitialValMAE:.10f}")
    print()
 
-   task = input("Werte für Aufgabe 11 oder 12?")
+   if task == "10":
+      # Eine vollständige Epoche; alle Punkte verwenden dieselben Startgewichte.
+      dw = np.zeros(NumWeights)
+      loss = 0.0
+      lossGrad = np.zeros(NumWeights)
+      print("Einzelpunkte vor dem Update (ungerundeter Kosinus):")
+      for step in range(NumTrainPoints):
+         GridPoint = TrainGrid[step]
+         TanhNeurons, OutputNeuron = NeuralNetwork(GridPoint, w)
+         PointLoss = LossFunction(GridPoint, OutputNeuron)
+         PointGrad = LossFunctionGradient(GridPoint, TanhNeurons, OutputNeuron, w)
+         loss += PointLoss
+         lossGrad += PointGrad
+         print(f"x={GridPoint:.1f}: N={OutputNeuron:.10f}, Loss={PointLoss:.10f}")
+         print("Gradient am Punkt:", PointGrad)
+      loss /= NumTrainPoints
+      lossGrad /= NumTrainPoints
+      w, dw = GradientDescent(w, dw, lossGrad)
+      TrainNN, TrainCosine, TrainMAE = MeanAbsoluteError(NumTrainPoints, TrainGrid, w)
+      ValNN, ValCosine, ValMAE = MeanAbsoluteError(NumValPoints, ValGrid, w)
+      FinalLoss = np.mean(0.5 * (TrainNN - TrainCosine) ** 2)
+      print("Gemittelter Gradient:", lossGrad)
+      print("Gewichtsupdate:", dw)
+      print("Gewichte nach einer Epoche:", w)
+      print(f"Loss vor Update: {loss:.10f}")
+      print(f"Loss nach Update: {FinalLoss:.10f}")
+      print(f"MAE Training: {TrainMAE:.10f}")
+      print(f"MAE Validierung: {ValMAE:.10f}")
 
-   if task == "11":
+   elif task == "11":
       # Aufgabe 11: Vereinfachung der Eingabe unterschiedlicher Epochen mit Schleife
       EpochList = [10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000]
       LossValues = []
@@ -282,6 +337,11 @@ if __name__ == "__main__":
          )
 
       print("=" * 90)
+      np.savetxt(OutputDir / "ergebnisse.csv",
+                 np.column_stack((EpochList, LossValues, TrainMAEValues, ValMAEValues)),
+                 delimiter=";", header="Epochen;Loss;MAE_Training;MAE_Validierung",
+                 comments="", fmt="%.12g")
+      print(f"Tabellen und Diagramme werden gespeichert in: {OutputDir}")
 
          # Diagramm 1: Loss
       plt.figure(figsize=(8,5))
@@ -302,7 +362,12 @@ if __name__ == "__main__":
       plt.title(f"Loss-Verlauf ({NumHLNeurons} Hidden-Neuronen)")
       plt.legend()
 
+      # Vor dem Anzeigen für den Bericht speichern.
+      plt.tight_layout()
+      plt.savefig(OutputDir / "loss.png", dpi=200)
       plt.show()
+      plt.close()
+
 
 
       # Diagramm 2: MAE
@@ -332,7 +397,12 @@ if __name__ == "__main__":
       plt.title(f"Mittlerer Absolutfehler ({NumHLNeurons} Hidden-Neuronen)")
       plt.legend()
 
+      # Vor dem Anzeigen für den Bericht speichern.
+      plt.tight_layout()
+      plt.savefig(OutputDir / "mae.png", dpi=200)
       plt.show()
+      plt.close()
+
 
       # Diagramm 3: Funktionsvergleich
       plt.figure(figsize=(10,6))
@@ -362,7 +432,12 @@ if __name__ == "__main__":
 
       plt.grid(True)
       plt.legend()
+      # Vor dem Anzeigen für den Bericht speichern.
+      plt.tight_layout()
+      plt.savefig(OutputDir / "funktionsvergleich.png", dpi=200)
       plt.show()
+      plt.close()
+
 
 
    elif task == "12":
@@ -466,6 +541,11 @@ if __name__ == "__main__":
          )
 
       print("=" * 95)
+      np.savetxt(OutputDir / "ergebnisse.csv",
+                 np.column_stack((TrainPointList, LossValues, TrainMAEValues, ValMAEValues)),
+                 delimiter=";", header="Trainingspunkte;Loss;MAE_Training;MAE_Validierung",
+                 comments="", fmt="%.12g")
+      print(f"Tabellen und Diagramme werden gespeichert in: {OutputDir}")
 
       # Diagramm 1: Loss
       plt.figure(figsize=(8,5))
@@ -486,7 +566,12 @@ if __name__ == "__main__":
          f"Loss in Abhängigkeit der Trainingspunkte ({NumHLNeurons} Neuronen)"
       )
 
+      # Vor dem Anzeigen für den Bericht speichern.
+      plt.tight_layout()
+      plt.savefig(OutputDir / "loss.png", dpi=200)
       plt.show()
+      plt.close()
+
 
       # Diagramm 2: MAE
       plt.figure(figsize=(8,5))
@@ -517,7 +602,12 @@ if __name__ == "__main__":
       )
 
       plt.legend()
+      # Vor dem Anzeigen für den Bericht speichern.
+      plt.tight_layout()
+      plt.savefig(OutputDir / "mae.png", dpi=200)
       plt.show()
+      plt.close()
+
 
       # Diagramm 3: Funktionsvergleich
       plt.figure(figsize=(10,6))
@@ -548,7 +638,12 @@ if __name__ == "__main__":
       plt.grid(True)
       plt.legend()
 
+      # Vor dem Anzeigen für den Bericht speichern.
+      plt.tight_layout()
+      plt.savefig(OutputDir / "funktionsvergleich.png", dpi=200)
       plt.show()
+      plt.close()
+
 
    else:
       raise ValueError("Ungültige Eingabe. Bitte '11' oder '12' eingeben.")
